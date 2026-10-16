@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Local working notes.
+wip/

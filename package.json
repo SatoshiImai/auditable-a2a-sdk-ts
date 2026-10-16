@@ -1,0 +1,83 @@
+{
+  "name": "auditable-a2a-sdk",
+  "version": "0.1.0",
+  "description": "Auditable A2A SDK — write-ahead audit of a delegated A2A Task into the Client's ledger (auditable-a2a/0.1, over auditable-mcp/0.4).",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Satoshi Imai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SatoshiImai/auditable-a2a-sdk-ts.git"
+  },
+  "homepage": "https://github.com/SatoshiImai/auditable-a2a-sdk-ts#readme",
+  "bugs": {
+    "url": "https://github.com/SatoshiImai/auditable-a2a-sdk-ts/issues"
+  },
+  "keywords": [
+    "a2a",
+    "agent2agent",
+    "audit",
+    "tamper-evident",
+    "ledger",
+    "auditable-mcp"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "volta": {
+    "node": "24.14.1"
+  },
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./a2a": {
+      "types": "./dist/a2a/index.d.ts",
+      "import": "./dist/a2a/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "spec",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "prepare": "npm run build",
+    "prepublishOnly": "tsx scripts/check-publish.ts && npm run spec:check && npm run lint && npm test",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check . && tsc --noEmit",
+    "format": "biome check --write .",
+    "spec:check": "tsx scripts/sync-spec.ts --check",
+    "spec:sync": "tsx scripts/sync-spec.ts"
+  },
+  "dependencies": {
+    "auditable-mcp-sdk": "git+https://github.com/SatoshiImai/auditable-mcp-sdk-ts.git#v0.4.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@a2a-js/sdk": "~1.3.0",
+    "@biomejs/biome": "2.4.8",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "ajv": "^8.20.0",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.0"
+  },
+  "peerDependencies": {
+    "@a2a-js/sdk": "~1.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@a2a-js/sdk": {
+      "optional": true
+    }
+  }
+}
