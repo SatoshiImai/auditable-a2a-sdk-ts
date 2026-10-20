@@ -77,6 +77,7 @@ interface Restored {
   outcomes: Map<string, Record<string, unknown>>;
   responses: Map<string, Record<string, unknown>>;
   performing: Set<string>;
+  records: Set<string>;
   resolved: Map<string, 'success' | 'failed'>;
   acked: Set<string>;
   closed: boolean;
@@ -105,6 +106,7 @@ function restore(entries: JournalEntry[], credentials: ResumeOptions['credential
     outcomes: new Map(),
     responses: new Map(),
     performing: new Set(),
+    records: new Set(),
     resolved: new Map(),
     acked: new Set(),
     closed: false,
@@ -128,6 +130,9 @@ function restore(entries: JournalEntry[], credentials: ResumeOptions['credential
         break;
       case 'performing':
         restored.performing.add(entry.id);
+        break;
+      case 'record':
+        restored.records.add(entry.id);
         break;
       case 'resolved':
         restored.resolved.set(entry.id, entry.outcome);
@@ -338,7 +343,10 @@ export async function resumeTask(options: ResumeOptions): Promise<ResumeResult> 
   );
   task[RESTORE_ACCEPTS](
     [...acceptedBefore, ...acceptedOnResend.keys()].filter(
-      (id) => reportedAttemptOf(restored.attempts.get(id) ?? {}) === undefined && !restored.outcomes.has(id),
+      (id) =>
+        reportedAttemptOf(restored.attempts.get(id) ?? {}) === undefined &&
+        !restored.outcomes.has(id) &&
+        !restored.records.has(id),
     ),
     reported,
   );
@@ -353,8 +361,8 @@ export async function resumeTask(options: ResumeOptions): Promise<ResumeResult> 
     if (restored.outcomes.has(id)) continue;
     const attempt = restored.attempts.get(id);
     if (attempt === undefined) continue;
-    // A report is completed with its `success` outcome, not reported on.
-    if (attempt.action_type === EXECUTION_REPORT_ACTION_TYPE) {
+    // A report, and a record that is not an access (§8.1), is completed with its `success` outcome, not reported on.
+    if (attempt.action_type === EXECUTION_REPORT_ACTION_TYPE || restored.records.has(id)) {
       if (!(await sendOutcome(attempt, 'success'))) return held(4, { outcome: id });
       continue;
     }

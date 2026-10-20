@@ -190,3 +190,17 @@ describe('the execution report (§8.6)', () => {
     expect(action).toBeDefined();
   });
 });
+
+describe('a countersigning key (§7.1, §10.2)', () => {
+  it('is refused before a session opens when it is not named under hostKeys', async () => {
+    const hostKey = generateToolKey('h1');
+    const host = A2aAuditHost.create('client-a', Level.L1, Countersign.HOST, {
+      store: new InMemorySessionStore(),
+      clock: new Clock(),
+      countersigner: new Ed25519Countersigner(hostKey.keyId, hostKey.privateKey),
+    });
+    await expect(
+      host.openSession({ delegate: 'https://agent.example', expiresAt: '2026-11-15T00:00:00Z', hostKeys: HOST_KEYS }),
+    ).rejects.toThrow('§7.1');
+  });
+});

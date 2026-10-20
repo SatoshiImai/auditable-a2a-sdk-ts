@@ -75,7 +75,7 @@ SDK wraps are the ones the SDK serves every binding with. The tests and the walk
 Releases are published as tags of this repository, not to the npm registry:
 
 ```bash
-npm install git+https://github.com/SatoshiImai/auditable-a2a-sdk-ts.git#v0.1.0
+npm install git+https://github.com/SatoshiImai/auditable-a2a-sdk-ts.git#v0.1.1
 npm install @a2a-js/sdk   # for auditable-a2a-sdk/a2a
 ```
 
@@ -196,6 +196,15 @@ performed, is stated with an execution report (§8.6):
 
 ```ts
 await task.reportExecution(attemptId, 'not-performed');
+```
+
+A transition, a question or an answer is a record that is not an access (§8.1). `task.record(...)` sends it with
+`mutates` and `egress` both `false` and resolves once it is accepted, so nothing goes past what it describes before
+the record is made. Disposal sends `success` however the body ends, and a resumption completes an accepted one with
+`success` rather than reporting on it:
+
+```ts
+await using step = await task.record('agent.step', { kind: 'task', ref: taskId }, { commitSalted: { plan } });
 ```
 
 ### 3. Resuming after a restart

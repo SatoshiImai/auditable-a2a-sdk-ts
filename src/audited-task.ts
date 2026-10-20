@@ -101,6 +101,9 @@ export class AuditedTask {
   readonly #reporting = new Set<string>();
   readonly #abortedAttempts = new WeakMap<AmcpAbortedError, string>();
   #lastId: string | undefined;
+  // The id a record's attempt is minted with: written ahead before a-MCP sends the attempt (§8.1, §5.5).
+  #presetId: string | undefined;
+  #journal: ((entry: JournalEntry) => Promise<void>) | undefined;
 
   /**
    * @throws {Error} `countersign: "host"` without the host's key snapshot, which §8.3 needs to verify
@@ -124,10 +127,11 @@ export class AuditedTask {
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       ...(options.resumed === undefined ? {} : { numbering: new SessionNumbering(options.resumed.nextSignerSeq) }),
-      ...(options.selfLedger === undefined
-        ? {}
-        : { journal: this.#journalOf(options.selfLedger, options, options.resumed !== undefined) }),
     };
+    if (options.selfLedger !== undefined) {
+      this.#journal = this.#journalOf(options.selfLedger, options, options.resumed !== undefined);
+      clientOptions.journal = this.#journal;
+    }
     this.#client = new AuditEndpointClient(clientOptions);
     this.#request = request;
     this.#selfLedger = options.selfLedger;
@@ -137,7 +141,8 @@ export class AuditedTask {
     const recording: Deps = {
       now: () => deps.now(),
       newId: () => {
-        this.#lastId = deps.newId();
+        this.#lastId = this.#presetId ?? deps.newId();
+        this.#presetId = undefined;
         return this.#lastId;
       },
     };
@@ -220,10 +225,47 @@ export class AuditedTask {
     return this.#record(actionType, targetResource, options);
   }
 
+  /**
+   * Record a transition, a question or an answer: a record that is not an access (§8.1). Its attempt has `mutates`
+   * and `egress` both `false`; resolving waits for the accept, so do not go past what it describes before it does.
+   * Disposal sends `success` whatever the body did, and a resumption completes an accepted one with `success`
+   * rather than reporting on it (§5.5).
+   *
+   * @throws {Error} `actionType` is the execution report's, which a record is not (§8.1).
+   * @throws {AmcpAbortedError} Not recorded: do not go past it; hold the Task with {@link AuditedTask.statusOf} (§8.4).
+   * @throws {SessionExpiredError} The session has expired (§5.3).
+   * @throws {SelfLedgerError} It could not be written that this is a record; nothing was sent.
+   */
+  async record(
+    actionType: string,
+    targetResource: TargetResource,
+    options: Omit<Parameters<AmcpSession['action']>[2], 'mutates' | 'egress'> = {},
+  ): Promise<AuditedAction> {
+    if (actionType === EXECUTION_REPORT_ACTION_TYPE) {
+      throw new Error(`a record that is not an access does not use the action_type ${actionType}`);
+    }
+    this.#refuseAfterExpiry();
+    // Counted from before the entry is written, so `finish` does not close while the record is on its way (§6.7).
+    this.#pending += 1;
+    try {
+      if (this.#journal !== undefined) {
+        const id = this.#deps.newId();
+        await this.#journal({ entry: 'record', id });
+        this.#presetId = id;
+      }
+      return await this.#record(actionType, targetResource, { ...options, mutates: false, egress: false }, true);
+    } finally {
+      this.#pending -= 1;
+      // An attempt refused before a-MCP minted its id must not lend that id to the next action.
+      this.#presetId = undefined;
+    }
+  }
+
   async #record(
     actionType: string,
     targetResource: TargetResource,
     options: Parameters<AmcpSession['action']>[2],
+    isRecord = false,
   ): Promise<AuditedAction> {
     this.#pending += 1;
     let action: AuditedAction;
@@ -242,9 +284,11 @@ export class AuditedTask {
     const id = action.id;
     const state: Unresolved = { disposed: false, reported: false };
     this.#unresolved.set(id, state);
-    if (actionType !== EXECUTION_REPORT_ACTION_TYPE) this.#accepted.add(id);
+    // A report or a record performs nothing (§8.1, §8.6).
+    const performs = actionType !== EXECUTION_REPORT_ACTION_TYPE && !isRecord;
+    if (performs) this.#accepted.add(id);
     // §5.5: not performed unless written as about to be.
-    if (actionType !== EXECUTION_REPORT_ACTION_TYPE) await this.#selfLedger?.write({ entry: 'performing', id });
+    if (performs) await this.#selfLedger?.write({ entry: 'performing', id });
     // As a-MCP reads the two calls: `failed` wins, and neither means `failed`.
     let resolved: 'success' | 'failed' | undefined;
     const succeeded = action.succeeded.bind(action);
@@ -253,16 +297,20 @@ export class AuditedTask {
       succeeded();
       resolved ??= 'success';
     };
-    action.failed = () => {
-      failed();
-      resolved = 'failed';
-    };
+    // §8.1: a record describes what already happened, so it ends `success` whatever its body did.
+    action.failed = isRecord
+      ? () => undefined
+      : () => {
+          failed();
+          resolved = 'failed';
+        };
     const dispose = action[Symbol.asyncDispose].bind(action);
     action[Symbol.asyncDispose] = async () => {
       if (state.disposed) return;
       state.disposed = true;
       // §8.6: resolved by an execution report, so no outcome.
       if (state.reported) return;
+      if (isRecord) action.succeeded();
       try {
         await this.#selfLedger?.write({ entry: 'resolved', id, outcome: resolved ?? 'failed' });
       } catch (error) {

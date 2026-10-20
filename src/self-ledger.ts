@@ -23,6 +23,8 @@ const journalEntrySchema = z.discriminatedUnion('entry', [
   z.strictObject({ entry: z.literal('sent'), event: jsonObject }),
   z.strictObject({ entry: z.literal('response'), id, response: jsonObject }),
   z.strictObject({ entry: z.literal('performing'), id }),
+  /** An attempt about to be sent for a record that is not an access (§8.1): completed, never reported on. */
+  z.strictObject({ entry: z.literal('record'), id }),
   z.strictObject({ entry: z.literal('resolved'), id, outcome: z.enum(['success', 'failed']) }),
   z.strictObject({ entry: z.literal('acked'), id }),
   z.strictObject({ entry: z.literal('close') }),
