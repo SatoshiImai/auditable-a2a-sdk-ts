@@ -75,7 +75,7 @@ SDK wraps are the ones the SDK serves every binding with. The tests and the walk
 Releases are published as tags of this repository, not to the npm registry:
 
 ```bash
-npm install git+https://github.com/SatoshiImai/auditable-a2a-sdk-ts.git#v0.1.0
+npm install git+https://github.com/SatoshiImai/auditable-a2a-sdk-ts.git#v0.1.1
 npm install @a2a-js/sdk   # for auditable-a2a-sdk/a2a
 ```
 

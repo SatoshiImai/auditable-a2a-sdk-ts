@@ -104,6 +104,7 @@ export class A2aAuditHost {
   readonly #random: (bytes: number) => Uint8Array;
   readonly #level: Level;
   readonly #countersign: Countersign;
+  readonly #countersignerKeyId: string | undefined;
   readonly #states = new Map<string, SessionState>();
   readonly #verifiers = new Map<string, KeyRegistryVerifier>();
   readonly #credentials = new Map<string, string>();
@@ -118,6 +119,7 @@ export class A2aAuditHost {
     this.#host = host;
     this.#level = level;
     this.#countersign = countersign;
+    this.#countersignerKeyId = options.countersigner?.keyId;
     this.#store = options.store;
     this.#clock = options.clock ?? new SystemClock();
     this.#random = options.random ?? randomBytes;
@@ -183,7 +185,8 @@ export class A2aAuditHost {
    * Open a session for a delegation and issue its first credential (§5.1).
    *
    * @throws {Error} A version this host does not implement, Level 2 without a key snapshot, `countersign: "host"`
-   *   without `hostKeys`, or a key snapshot that is not a conforming registry (§10.2).
+   *   without `hostKeys`, a countersigning key not named under `hostKeys` (§7.1), or a key snapshot that is not a
+   *   conforming registry (§10.2).
    */
   async openSession(input: OpenSessionInput): Promise<{ sessionId: string; authentication: IssuedAuthentication }> {
     return this.#serialized(() => this.#openSession(input));
@@ -199,6 +202,12 @@ export class A2aAuditHost {
     }
     if (this.#countersign === Countersign.HOST && input.hostKeys === undefined) {
       throw new Error('a countersigning audit host names its keys in hostKeys (§7.1)');
+    }
+    // A delegate resolves a receipt's host_key_id at hostKeys, as `{hostKeys}#{kid}`: a key named any other way is
+    // never found there, and every countersignature reads as invalid.
+    const named = this.#countersignerKeyId;
+    if (input.hostKeys !== undefined && named !== undefined && !named.startsWith(`${input.hostKeys}#`)) {
+      throw new Error(`the countersigning key is named ${named}, not under ${input.hostKeys}# (§7.1, §10.2)`);
     }
     const state: SessionState = {
       sessionId: this.#host.openSession(),
