@@ -490,3 +490,66 @@ describe('a closed session completes the move to the terminal state (§5.5 step 
     expect(host.session(sessionId)?.end?.cause).toBe('close');
   });
 });
+
+describe('a record that is not an access (§8.1, §5.5)', () => {
+  const STEP = { kind: 'task', ref: TASK };
+
+  it('ends success and is not reported, even when its body marks it failed', async () => {
+    const { host, task } = await setup();
+    const record = await task.record('agent.step', STEP);
+    const attempt = host.records().find((sealed) => sealed.event.id === record.id);
+    expect([attempt?.event.mutates, attempt?.event.egress]).toEqual([false, false]);
+    record.failed();
+    await record[Symbol.asyncDispose]();
+    expect(outcomesOf(host, record.id).map((sealed) => sealed.event.outcome)).toEqual(['success']);
+    expect(await task.finish()).toBe(true);
+  });
+
+  it('is completed with success when the restart caught it accepted', async () => {
+    const { host, task, restart } = await setup();
+    const record = await task.record('agent.step', STEP);
+
+    const { resumed } = await restart();
+    expect(resumed).toMatchObject({ state: 'continue', notPerformed: [], indeterminate: [] });
+    expect(reportsOn(host, record.id)).toHaveLength(0);
+    expect(outcomesOf(host, record.id).map((sealed) => sealed.event.outcome)).toEqual(['success']);
+  });
+
+  it('is completed with success when it first reaches it on a resend', async () => {
+    const { host, task, next, restart } = await setup();
+    next.push('hang');
+    void task.record('agent.step', STEP);
+    await expect.poll(() => host.records().length).toBe(1);
+    const id = String(host.records()[0]?.event.id);
+
+    const { resumed } = await restart();
+    expect(resumed).toMatchObject({ state: 'continue', notPerformed: [] });
+    expect(reportsOn(host, id)).toHaveLength(0);
+    expect(outcomesOf(host, id).map((sealed) => sealed.event.outcome)).toEqual(['success']);
+  });
+
+  it('lends no id to the next action when a-MCP refuses the record before minting one', async () => {
+    const { host, task, restart } = await setup();
+    await expect(task.record('agent.step', { kind: 1 } as never)).rejects.toThrow();
+    const action = await task.action('db.write', TABLE, { mutates: true, egress: false });
+
+    const { resumed } = await restart();
+    expect(resumed).toMatchObject({ state: 'continue', indeterminate: [action.id] });
+    expect(reportsOn(host, action.id)).toHaveLength(1);
+  });
+
+  it('is counted as on its way while its entry is written, so finish does not close under it', async () => {
+    const { host, task } = await setup();
+    const recording = task.record('agent.step', STEP);
+    expect(await task.finish()).toBe(false);
+    const record = await recording;
+    await record[Symbol.asyncDispose]();
+    expect(await task.finish()).toBe(true);
+    expect(outcomesOf(host, record.id).map((sealed) => sealed.event.outcome)).toEqual(['success']);
+  });
+
+  it('refuses the execution report type', async () => {
+    const { task } = await setup();
+    await expect(task.record(EXECUTION_REPORT_ACTION_TYPE, STEP)).rejects.toThrow(/does not use/);
+  });
+});
